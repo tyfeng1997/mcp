@@ -224,19 +224,56 @@ server.tool(
   }
 );
 
+// Express应用设置
 const app = express();
+const PORT = 3001;
 
-let transport: SSEServerTransport | null = null;
+// 存储多个传输实例
+const transports = new Map();
+let nextId = 1;
 
 app.get("/sse", (req, res) => {
-  transport = new SSEServerTransport("/messages", res);
-  server.connect(transport);
-});
+  const id = nextId++;
+  console.log(`Client ${id} connected`);
 
+  // 为每个客户端创建一个新的传输实例
+  const transport = new SSEServerTransport("/messages", res);
+  transports.set(id, transport);
+
+  // 连接到服务器
+  server.connect(transport).catch((err) => {
+    console.error(`Error connecting client ${id}:`, err);
+  });
+
+  // 当连接关闭时清理
+  res.on("close", () => {
+    console.log(`Client ${id} disconnected`);
+    transports.delete(id);
+  });
+});
 app.post("/messages", (req, res) => {
-  if (transport) {
+  // 这里需要实现逻辑来识别消息应该发送到哪个传输实例
+  // 这是一个简化的方法，生产环境需要更复杂的会话管理
+  // 在大多数SSE实现中，客户端会在消息中包含会话ID
+
+  // 假设最后一个连接的客户端是当前活动的
+  if (transports.size > 0) {
+    const lastId = Math.max(...transports.keys());
+    const transport = transports.get(lastId);
     transport.handlePostMessage(req, res);
+  } else {
+    res.status(400).send("No active connections");
   }
 });
 
-app.listen(3001);
+// 启动服务器
+app.listen(PORT, () => {
+  console.log(`Weather MCP Server running on http://localhost:${PORT}`);
+  console.log(`Connect clients to http://localhost:${PORT}/sse`);
+});
+
+// 处理程序退出
+process.on("SIGINT", () => {
+  console.log("Shutting down server...");
+  process.exit(0);
+});
